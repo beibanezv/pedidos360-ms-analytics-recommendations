@@ -34,9 +34,11 @@ class KafkaEventosConfig {
     var consumers = new DefaultKafkaConsumerFactory<>(settings, StringDeserializer::new,
         () -> new ErrorHandlingDeserializer<>(new JsonDeserializer<>(type, false)));
     var errors = new DefaultErrorHandler((record, ex) -> log.error(
-        "Kafka descartado tras validación/reintentos topic={} partición={} offset={} error={}",
+        "Kafka descartado por formato o validación topic={} partición={} offset={} error={}",
         record.topic(), record.partition(), record.offset(), ex.getClass().getSimpleName()),
-        new FixedBackOff(1000L, 2L));
+        // SIMPLIFICADO: una falla de BD detiene el avance del grupo hasta recuperarse.
+        // Si un flujo necesita seguir durante la caída, usar un tópico de reintentos persistente.
+        new FixedBackOff(1000L, FixedBackOff.UNLIMITED_ATTEMPTS));
     errors.addNotRetryableExceptions(IllegalArgumentException.class);
     errors.setRetryListeners((record, ex, intento) -> log.warn("Kafka error topic={} offset={} intento={}",
         record.topic(), record.offset(), intento));

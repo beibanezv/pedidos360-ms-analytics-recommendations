@@ -2,6 +2,7 @@ package com.pedidos360.analytics;
 
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -20,7 +21,9 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.dao.TransientDataAccessResourceException;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
@@ -36,8 +39,23 @@ class FlujoKafkaWebSocketTest {
   @LocalServerPort int port;
   @Autowired KafkaTemplate<String, Object> kafka;
   @Autowired EventoRepository eventos;
+  @SpyBean KafkaEventos listener;
   @Autowired ObjectMapper json;
   @MockBean JwtDecoder decoder;
+
+  @Test
+  void conservaElOffsetHastaQuePostgresSeRecupere() throws Exception {
+    var usuario = UUID.randomUUID().toString();
+    var producto = UUID.randomUUID();
+    var vista = new InteraccionEvent(UUID.randomUUID(), usuario, "DETALLE_PRODUCTO", producto, Instant.now());
+    doThrow(new TransientDataAccessResourceException("Postgres temporalmente indisponible"))
+        .doThrow(new TransientDataAccessResourceException("Postgres aún indisponible"))
+        .doThrow(new TransientDataAccessResourceException("Postgres aún indisponible"))
+        .doCallRealMethod().when(listener).interaccion(vista);
+    kafka.send("p360.interacciones.v1", usuario, vista).get(10, SECONDS);
+    org.awaitility.Awaitility.await().atMost(12, SECONDS)
+        .untilAsserted(() -> assertThat(eventos.productosVistos(usuario)).containsExactly(producto));
+  }
 
   @Test
   void entregaMetricasPorWebsocketDespuesDeConsumirAmbosTopics() throws Exception {

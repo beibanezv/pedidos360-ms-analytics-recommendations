@@ -21,8 +21,11 @@ Configura `DATASOURCE_URL`, `DATASOURCE_USER`, `DATASOURCE_PASSWORD`,
 `KAFKA_BOOTSTRAP_SERVERS`, `PRODUCTOS_URL` y `CORS_ALLOWED_ORIGINS`. Para las
 pruebas PostgreSQL ejecuta `mvn test` con `P360_TEST_ANALYTICS_URL` apuntando
 a una base de test dedicada. Los eventos con ID duplicado no se cuentan de nuevo.
-Con `P360_TEST_KAFKA=true`, el suite también produce a los tópicos del clúster
+Los eventos inválidos se descartan con un log de tópico, partición y offset.
+Si falla la persistencia, el consumidor reintenta sin confirmar el evento;
+el grupo puede acumular lag hasta recuperar PostgreSQL.
+Con `P360_TEST_KAFKA=true`, la suite también produce a los tópicos del clúster
 local, consume por los dos grupos y lee métricas por un WebSocket real.
 Detén la instancia local de Analytics antes de probar: sus consumidores
 comparten los grupos con la instancia de integración. No lo ejecutes con Kafka
-de producción: escribe dos eventos de prueba.
+de producción: escribe eventos de prueba.
