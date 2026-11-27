@@ -1,5 +1,6 @@
 package com.pedidos360.analytics;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -10,9 +11,18 @@ import org.springframework.web.server.ResponseStatusException;
 @Component
 class TicketsMetricas {
   private final ConcurrentHashMap<String, Ticket> pendientes = new ConcurrentHashMap<>();
+  private final Clock reloj;
+
+  TicketsMetricas() {
+    this(Clock.systemUTC());
+  }
+
+  TicketsMetricas(Clock reloj) {
+    this.reloj = reloj;
+  }
 
   synchronized String emitir(Instant venceJwt) {
-    Instant ahora = Instant.now();
+    Instant ahora = reloj.instant();
     if (venceJwt == null || !venceJwt.isAfter(ahora)) {
       throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
     }
@@ -26,7 +36,7 @@ class TicketsMetricas {
 
   Instant consumir(String id) {
     Ticket ticket = pendientes.remove(id);
-    Instant ahora = Instant.now();
+    Instant ahora = reloj.instant();
     return ticket != null && ticket.validoHasta().isAfter(ahora) && ticket.sesionHasta().isAfter(ahora)
         ? ticket.sesionHasta() : null;
   }

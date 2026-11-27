@@ -5,6 +5,7 @@ import static org.mockito.Mockito.*;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
+import java.util.ArrayList;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.web.socket.CloseStatus;
@@ -84,5 +85,68 @@ class MetricasSocketTest {
 
     verify(primero, never()).close(CloseStatus.POLICY_VIOLATION);
     verify(segundo).close(CloseStatus.POLICY_VIOLATION);
+  }
+
+  @Test
+  void cierraYLimpiaLaConexionSiVenceLaVentanaDeAutorizacion() throws Exception {
+    var inicio = Instant.parse("2026-01-01T00:00:00Z");
+    var reloj = new RelojAjustable(inicio);
+    var tickets = new TicketsMetricas(reloj);
+    var repo = mock(EventoRepository.class);
+    when(repo.metricas(any())).thenReturn(new Metricas(1, 2, 3, 4));
+    var socket = new MetricasSocket(tickets, repo, new ObjectMapper(), ORIGEN, reloj);
+    var cliente = cliente("cliente");
+    var ticket = tickets.emitir(inicio.plusSeconds(60));
+
+    socket.afterConnectionEstablished(cliente);
+    reloj.avanzarSegundos(11);
+    socket.handleTextMessage(cliente, new TextMessage(ticket));
+    socket.actualizar();
+
+    verify(cliente).close(CloseStatus.POLICY_VIOLATION);
+    verify(cliente, never()).sendMessage(any());
+  }
+
+  @Test
+  void cierraSinMetricasSiElTicketVencioAlConsumirlo() throws Exception {
+    var inicio = Instant.parse("2026-01-01T00:00:00Z");
+    var reloj = new RelojAjustable(inicio);
+    var tickets = new TicketsMetricas(reloj);
+    var repo = mock(EventoRepository.class);
+    when(repo.metricas(any())).thenReturn(new Metricas(1, 2, 3, 4));
+    var socket = new MetricasSocket(tickets, repo, new ObjectMapper(), ORIGEN, reloj);
+    var cliente = cliente("cliente");
+    var ticket = tickets.emitir(inicio.plusSeconds(60));
+
+    reloj.avanzarSegundos(25);
+    socket.afterConnectionEstablished(cliente);
+    reloj.avanzarSegundos(6);
+    socket.handleTextMessage(cliente, new TextMessage(ticket));
+    socket.actualizar();
+
+    verify(cliente).close(CloseStatus.POLICY_VIOLATION);
+    verify(cliente, never()).sendMessage(any());
+  }
+
+  @Test
+  void rechazaLaConexion51() throws Exception {
+    var reloj = new RelojAjustable(Instant.parse("2026-01-01T00:00:00Z"));
+    var socket = new MetricasSocket(new TicketsMetricas(reloj), mock(EventoRepository.class),
+        new ObjectMapper(), ORIGEN, reloj);
+    var aceptados = new ArrayList<WebSocketSession>();
+    for (int i = 1; i <= 50; i++) {
+      var aceptado = cliente("cliente-" + i);
+      aceptados.add(aceptado);
+      socket.afterConnectionEstablished(aceptado);
+    }
+    var excedente = cliente("cliente-51");
+
+    socket.afterConnectionEstablished(excedente);
+
+    for (var aceptado : aceptados) {
+      verify(aceptado, never()).close(any(CloseStatus.class));
+    }
+    verify(excedente).close(CloseStatus.POLICY_VIOLATION);
+    verify(excedente, never()).sendMessage(any());
   }
 }
