@@ -17,12 +17,14 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
+import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 
 @WebMvcTest(AnalyticsController.class)
 @Import({IdentityConfig.class, TicketsMetricas.class})
 class AnalyticsControllerTest {
   @Autowired MockMvc mvc;
   @MockBean RecomendacionService service;
+  @MockBean DynamoDbClient dynamo;
 
   @Test
   void recomendacionesRequierenJwtYSeCalculanParaSuDueno() throws Exception {
