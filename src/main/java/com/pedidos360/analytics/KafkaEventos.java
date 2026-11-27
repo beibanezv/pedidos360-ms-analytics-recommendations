@@ -15,8 +15,12 @@ class KafkaEventos {
   private static final Set<String> SIN_PRODUCTO = Set.of("CUPON_INGRESADO", "ENVIO_CONFIRMADO");
   private static final Set<String> PAGO = Set.of("APROBADO", "RECHAZADO", "BLOQUEADO");
   private final EventoRepository repo;
+  private final DynamoDbHistorial historial;
 
-  KafkaEventos(EventoRepository repo) { this.repo = repo; }
+  KafkaEventos(EventoRepository repo, DynamoDbHistorial historial) {
+    this.repo = repo;
+    this.historial = historial;
+  }
 
   @KafkaListener(topics = "p360.interacciones.v1", groupId = "p360-recomendaciones-v1",
       containerFactory = "interaccionesFactory")
@@ -39,6 +43,8 @@ class KafkaEventos {
   }
 
   private void registrar(UUID id, String usuario, String tipo, UUID producto, UUID orden, Long total, Instant cuando) {
+    // C5: archivar primero; un duplicado condicional no salta la proyección pendiente.
+    historial.registrar(new InteraccionEvent(id, usuario, tipo, producto, cuando));
     if (repo.registrar(id, usuario, tipo, producto, orden, total, cuando) == 1) {
       log.info("Evento Kafka registrado tipo={} id={}", tipo, id);
     }
