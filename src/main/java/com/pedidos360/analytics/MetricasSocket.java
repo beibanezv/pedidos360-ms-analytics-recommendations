@@ -2,10 +2,14 @@ package com.pedidos360.analytics;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -20,28 +24,45 @@ class MetricasSocket extends TextWebSocketHandler {
   private final TicketsMetricas tickets;
   private final EventoRepository eventos;
   private final ObjectMapper json;
+  private final List<String> origenesPermitidos;
+  private final Clock reloj;
   private final Map<String, Conexion> clientes = new ConcurrentHashMap<>();
 
-  MetricasSocket(TicketsMetricas tickets, EventoRepository eventos, ObjectMapper json) {
+  @Autowired
+  MetricasSocket(TicketsMetricas tickets, EventoRepository eventos, ObjectMapper json,
+      @Value("${WS_ALLOWED_ORIGINS:}") String origenes) {
+    this(tickets, eventos, json, origenes, Clock.systemUTC());
+  }
+
+  MetricasSocket(TicketsMetricas tickets, EventoRepository eventos, ObjectMapper json,
+      String origenes, Clock reloj) {
     this.tickets = tickets;
     this.eventos = eventos;
     this.json = json;
+    this.origenesPermitidos = java.util.Arrays.stream(origenes.split(","))
+        .map(String::trim).filter(s -> !s.isEmpty()).toList();
+    this.reloj = reloj;
   }
 
   @Override
   public synchronized void afterConnectionEstablished(WebSocketSession session) throws IOException {
+    String origin = session.getHandshakeHeaders().getFirst("Origin");
+    if (origin == null || !origenesPermitidos.contains(origin)) {
+      session.close(CloseStatus.POLICY_VIOLATION);
+      return;
+    }
     if (clientes.size() >= 50) {
       session.close(CloseStatus.POLICY_VIOLATION);
       return;
     }
     session.setTextMessageSizeLimit(128);
-    clientes.put(session.getId(), new Conexion(session, Instant.now().plusSeconds(10), false));
+    clientes.put(session.getId(), new Conexion(session, reloj.instant().plusSeconds(10), false));
   }
 
   @Override
   protected void handleTextMessage(WebSocketSession session, TextMessage message) throws IOException {
     var conexion = clientes.get(session.getId());
-    Instant vence = conexion != null && !conexion.autorizada() && conexion.vence().isAfter(Instant.now())
+    Instant vence = conexion != null && !conexion.autorizada() && conexion.vence().isAfter(reloj.instant())
         && message.getPayloadLength() == 36 ? tickets.consumir(message.getPayload()) : null;
     if (vence == null || !clientes.replace(session.getId(), conexion, new Conexion(session, vence, true))) {
       clientes.remove(session.getId());
@@ -56,7 +77,7 @@ class MetricasSocket extends TextWebSocketHandler {
 
   @Scheduled(fixedDelay = 2000)
   void actualizar() {
-    Instant ahora = Instant.now();
+    Instant ahora = reloj.instant();
     var autorizadas = clientes.values().stream().filter(c -> {
       if (c.vence().isAfter(ahora) && c.session().isOpen()) return c.autorizada();
       if (clientes.remove(c.session().getId(), c) && c.session().isOpen()) cerrar(c.session());
@@ -66,7 +87,7 @@ class MetricasSocket extends TextWebSocketHandler {
     try {
       var mensaje = new TextMessage(json.writeValueAsString(eventos.metricas(ahora.minus(1, ChronoUnit.DAYS))));
       for (var c : autorizadas) {
-        if (clientes.get(c.session().getId()) != c || !c.vence().isAfter(Instant.now())) continue;
+        if (clientes.get(c.session().getId()) != c || !c.vence().isAfter(reloj.instant())) continue;
         try {
           c.session().sendMessage(mensaje);
         } catch (IOException | IllegalStateException e) {

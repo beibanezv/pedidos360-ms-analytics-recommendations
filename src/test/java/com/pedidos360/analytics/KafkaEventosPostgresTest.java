@@ -10,15 +10,18 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
+import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 
 @DataJpaTest(properties = "spring.datasource.url=${P360_TEST_ANALYTICS_URL}")
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @EnabledIfEnvironmentVariable(named = "P360_TEST_ANALYTICS_URL", matches = ".+")
-@Import(KafkaEventos.class)
+@Import({KafkaEventos.class, DynamoDbHistorial.class})
 class KafkaEventosPostgresTest {
   @Autowired KafkaEventos eventos;
   @Autowired EventoRepository repo;
+  @MockBean DynamoDbClient dynamoDb;
 
   @Test
   void contabilizaAmbosTopicsSinDuplicar() {
