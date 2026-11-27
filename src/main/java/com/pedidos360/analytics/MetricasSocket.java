@@ -4,8 +4,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.beans.factory.annotation.Value;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -20,16 +22,25 @@ class MetricasSocket extends TextWebSocketHandler {
   private final TicketsMetricas tickets;
   private final EventoRepository eventos;
   private final ObjectMapper json;
+  private final List<String> origenesPermitidos;
   private final Map<String, Conexion> clientes = new ConcurrentHashMap<>();
 
-  MetricasSocket(TicketsMetricas tickets, EventoRepository eventos, ObjectMapper json) {
+  MetricasSocket(TicketsMetricas tickets, EventoRepository eventos, ObjectMapper json,
+      @Value("${WS_ALLOWED_ORIGINS:}") String origenes) {
     this.tickets = tickets;
     this.eventos = eventos;
     this.json = json;
+    this.origenesPermitidos = java.util.Arrays.stream(origenes.split(","))
+        .map(String::trim).filter(s -> !s.isEmpty()).toList();
   }
 
   @Override
   public synchronized void afterConnectionEstablished(WebSocketSession session) throws IOException {
+    String origin = session.getHandshakeHeaders().getFirst("Origin");
+    if (origin == null || !origenesPermitidos.contains(origin)) {
+      session.close(CloseStatus.POLICY_VIOLATION);
+      return;
+    }
     if (clientes.size() >= 50) {
       session.close(CloseStatus.POLICY_VIOLATION);
       return;
